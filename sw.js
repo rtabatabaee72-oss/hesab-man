@@ -1,4 +1,4 @@
-const CACHE = 'hesab-man-v1';
+const CACHE = 'hesab-man-v2';
 
 const SHELL = [
   './',
