@@ -12,7 +12,7 @@
   var TAB_META = {
     home: { title: 'حساب من', sub: 'دفتر خرج و درآمد' },
     list: { title: 'تراکنش‌ها', sub: 'همهٔ ثبت‌ها' },
-    report: { title: 'گزارش', sub: 'تحلیل ماهانه' },
+    report: { title: 'گزارش', sub: 'ماهانه یا بازه دلخواه' },
     settings: { title: 'تنظیمات', sub: 'دسته‌بندی، پشتیبان، اطلاعات' }
   };
 
@@ -34,7 +34,10 @@
     tab: 'home',
     month: null,
     filter: 'all',
-    search: ''
+    search: '',
+    reportMode: 'month',
+    rangeStart: null,
+    rangeEnd: null
   };
 
   var draft = null;
@@ -170,11 +173,9 @@
     });
   }
 
-  function listBody() {
-    var list = filteredTransactions();
-
+  function groupList(list, emptyText) {
     if (!list.length) {
-      return emptyState('🔍', state.search ? 'چیزی پیدا نشد.' : 'در این ماه تراکنشی ثبت نشده.');
+      return emptyState('🔍', emptyText);
     }
 
     var groups = [];
@@ -201,6 +202,86 @@
     }).join('') + '</div>';
   }
 
+  function listBody() {
+    return groupList(
+      filteredTransactions(),
+      state.search ? 'چیزی پیدا نشد.' : 'در این ماه تراکنشی ثبت نشده.'
+    );
+  }
+
+  function isoValid(value) {
+    return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+  }
+
+  function addDaysISO(iso, delta) {
+    var d = Jalali.fromISO(iso);
+    d.setDate(d.getDate() + delta);
+    return Jalali.toISO(d);
+  }
+
+  function monthStartISO(jy, jm) { return Jalali.jalaliToISO(jy, jm, 1); }
+
+  function monthEndISO(jy, jm) { return Jalali.jalaliToISO(jy, jm, Jalali.monthLength(jy, jm)); }
+
+  function defaultRange() {
+    var today = Jalali.todayISO();
+    var j = Jalali.toJalali(today);
+    return { start: monthStartISO(j.jy, j.jm), end: today };
+  }
+
+  function currentRange() {
+    var d = defaultRange();
+    var r = {
+      start: isoValid(state.rangeStart) || d.start,
+      end: isoValid(state.rangeEnd) || d.end
+    };
+    if (r.start > r.end) { var t = r.start; r.start = r.end; r.end = t; }
+    state.rangeStart = r.start;
+    state.rangeEnd = r.end;
+    return r;
+  }
+
+  function rangeDays(r) {
+    var ms = Jalali.fromISO(r.end).getTime() - Jalali.fromISO(r.start).getTime();
+    return Math.max(1, Math.round(ms / 86400000) + 1);
+  }
+
+  function rangePresets() {
+    return [
+      { id: 'thisMonth', label: 'این ماه' },
+      { id: 'prevMonth', label: 'ماه گذشته' },
+      { id: 'last7', label: FaNum.plain(7) + ' روز گذشته' },
+      { id: 'last30', label: FaNum.plain(30) + ' روز گذشته' },
+      { id: 'year', label: 'از ابتدای سال' }
+    ];
+  }
+
+  function applyRangePreset(id) {
+    var today = Jalali.todayISO();
+    var j = Jalali.toJalali(today);
+    var start = monthStartISO(j.jy, j.jm);
+    var end = today;
+
+    if (id === 'last7') {
+      start = addDaysISO(today, -6);
+    } else if (id === 'last30') {
+      start = addDaysISO(today, -29);
+    } else if (id === 'prevMonth') {
+      var jy = j.jy, jm = j.jm - 1;
+      if (jm < 1) { jm = 12; jy -= 1; }
+      start = monthStartISO(jy, jm);
+      end = monthEndISO(jy, jm);
+    } else if (id === 'year') {
+      start = monthStartISO(j.jy, 1);
+    } else {
+      id = 'thisMonth';
+    }
+
+    state.reportMode = 'range';
+    state.rangeStart = start;
+    state.rangeEnd = end;
+  }
+
   function renderList() {
     return '' +
       '<div class="toolbar">' + monthNav() + '</div>' +
@@ -214,13 +295,8 @@
   }
 
   function renderReport() {
-    var key = monthKey(state.month);
-    var s = Store.summary(key);
-    var expenses = Store.byCategory(key, 'expense');
-    var incomes = Store.byCategory(key, 'income');
-
-    function breakdown(rows, color) {
-      if (!rows.length) return emptyState('📊', 'داده‌ای برای این ماه نیست.');
+    function breakdown(rows, color, emptyText) {
+      if (!rows.length) return emptyState('📊', emptyText);
       return rows.map(function (r) {
         return '' +
           '<div class="brk">' +
@@ -235,17 +311,75 @@
       }).join('');
     }
 
-    return '' +
-      '<div class="toolbar">' + monthNav() + '</div>' +
-      '<div class="stat-grid">' +
-        '<div class="stat"><div class="k">درآمد</div><div class="v in-text">' + money(s.income) + '</div></div>' +
-        '<div class="stat"><div class="k">هزینه</div><div class="v ex-text">' + money(s.expense) + '</div></div>' +
-        '<div class="stat"><div class="k">مانده</div><div class="v">' + money(s.net) + '</div></div>' +
+    function statGrid(s) {
+      return '' +
+        '<div class="stat-grid">' +
+          '<div class="stat"><div class="k">درآمد</div><div class="v in-text">' + money(s.income) + '</div></div>' +
+          '<div class="stat"><div class="k">هزینه</div><div class="v ex-text">' + money(s.expense) + '</div></div>' +
+          '<div class="stat"><div class="k">مانده</div><div class="v">' + money(s.net) + '</div></div>' +
+        '</div>';
+    }
+
+    var mode = state.reportMode === 'range' ? 'range' : 'month';
+    var head = '' +
+      '<div class="seg" style="margin-bottom:12px">' +
+        '<button data-action="report-mode" data-mode="month" class="' + (mode === 'month' ? 'on' : '') + '">ماهانه</button>' +
+        '<button data-action="report-mode" data-mode="range" class="' + (mode === 'range' ? 'on' : '') + '">بازه دلخواه</button>' +
+      '</div>';
+
+    if (mode === 'month') {
+      var key = monthKey(state.month);
+      var s = Store.summary(key);
+      var expenses = Store.byCategory(key, 'expense');
+      var incomes = Store.byCategory(key, 'income');
+
+      return head +
+        '<div class="toolbar">' + monthNav() + '</div>' +
+        statGrid(s) +
+        '<div class="section-title">هزینه‌ها به تفکیک دسته</div>' +
+        '<div class="card">' + breakdown(expenses, 'ex', 'داده‌ای برای این ماه نیست.') + '</div>' +
+        '<div class="section-title">درآمدها به تفکیک دسته</div>' +
+        '<div class="card">' + breakdown(incomes, 'in', 'داده‌ای برای این ماه نیست.') + '</div>';
+    }
+
+    var r = currentRange();
+    var rs = Store.summaryRange(r.start, r.end);
+    var rExpenses = Store.byCategoryRange(r.start, r.end, 'expense');
+    var rIncomes = Store.byCategoryRange(r.start, r.end, 'income');
+    var rList = Store.transactions({ from: r.start, to: r.end });
+    var days = rangeDays(r);
+
+    var presets = rangePresets().map(function (p) {
+      return '<button class="chip" data-action="range-preset" data-preset="' + p.id + '">' + esc(p.label) + '</button>';
+    }).join('');
+
+    return head +
+      '<div class="chips">' + presets + '</div>' +
+      '<div class="card" style="margin-bottom:12px">' +
+        '<div class="range-grid">' +
+          '<div class="field">' +
+            '<label>از تاریخ</label>' +
+            '<input class="inp" id="range-start" type="date" value="' + esc(r.start) + '">' +
+            '<div class="s-d">' + esc(Jalali.shortDate(r.start)) + '</div>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label>تا تاریخ</label>' +
+            '<input class="inp" id="range-end" type="date" value="' + esc(r.end) + '">' +
+            '<div class="s-d">' + esc(Jalali.shortDate(r.end)) + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="s-d" style="margin-top:8px">' +
+          esc(Jalali.shortDate(r.start)) + ' تا ' + esc(Jalali.shortDate(r.end)) +
+          ' · ' + FaNum.plain(days) + ' روز · ' + FaNum.plain(rs.count) + ' تراکنش' +
+        '</div>' +
       '</div>' +
+      statGrid(rs) +
       '<div class="section-title">هزینه‌ها به تفکیک دسته</div>' +
-      '<div class="card">' + breakdown(expenses, 'ex') + '</div>' +
+      '<div class="card">' + breakdown(rExpenses, 'ex', 'در این بازه هزینه‌ای نیست.') + '</div>' +
       '<div class="section-title">درآمدها به تفکیک دسته</div>' +
-      '<div class="card">' + breakdown(incomes, 'in') + '</div>';
+      '<div class="card">' + breakdown(rIncomes, 'in', 'در این بازه درآمدی نیست.') + '</div>' +
+      '<div class="section-title">تراکنش‌های این بازه</div>' +
+      groupList(rList, 'در این بازه تراکنشی ثبت نشده.');
   }
 
   function renderSettings() {
@@ -704,6 +838,17 @@
       case 'month-prev': shiftMonth(-1); break;
       case 'month-next': shiftMonth(1); break;
 
+      case 'report-mode':
+        state.reportMode = target.getAttribute('data-mode') === 'range' ? 'range' : 'month';
+        if (state.reportMode === 'range') currentRange();
+        render();
+        break;
+
+      case 'range-preset':
+        applyRangePreset(target.getAttribute('data-preset'));
+        render();
+        break;
+
       case 'filter':
         state.filter = target.getAttribute('data-filter');
         render();
@@ -870,6 +1015,18 @@
 
   document.addEventListener('keydown', function (ev) {
     if (ev.key === 'Escape' && sheet.classList.contains('open')) closeSheet();
+  });
+
+  document.addEventListener('change', function (ev) {
+    var t = ev.target;
+    if (!t || (t.id !== 'range-start' && t.id !== 'range-end')) return;
+    var s = document.getElementById('range-start');
+    var e = document.getElementById('range-end');
+    if (s && s.value) state.rangeStart = s.value;
+    if (e && e.value) state.rangeEnd = e.value;
+    state.reportMode = 'range';
+    currentRange();
+    render();
   });
 
   /* ---------------- راه‌اندازی ---------------- */

@@ -230,12 +230,26 @@
     return get().transactions.filter(function (t) { return t.id === id; })[0] || null;
   }
 
+  function validISO(value) {
+    return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+  }
+
+  function normalizeRange(from, to) {
+    var a = validISO(from);
+    var b = validISO(to);
+    if (a && b && a > b) { var t = a; a = b; b = t; }
+    return { from: a, to: b };
+  }
+
   function transactions(filter) {
     filter = filter || {};
     var out = get().transactions.slice();
 
     if (filter.type) out = out.filter(function (t) { return t.type === filter.type; });
     if (filter.monthKey) out = out.filter(function (t) { return Jalali.monthKeyOf(t.date) === filter.monthKey; });
+    var range = normalizeRange(filter.from, filter.to);
+    if (range.from) out = out.filter(function (t) { return t.date >= range.from; });
+    if (range.to) out = out.filter(function (t) { return t.date <= range.to; });
 
     if (filter.search) {
       var q = String(filter.search).trim().toLowerCase();
@@ -271,12 +285,23 @@
     return summary(null);
   }
 
-  function byCategory(monthKey, type) {
-    var list = transactions({ monthKey: monthKey, type: type });
+  function summarizeList(list) {
+    var income = sumType(list, 'income');
+    var expense = sumType(list, 'expense');
+    return { income: income, expense: expense, net: income - expense, count: list.length };
+  }
+
+  function summaryRange(from, to) {
+    var range = normalizeRange(from, to);
+    return summarizeList(transactions({ from: range.from, to: range.to }));
+  }
+
+  function groupByCategory(list, type) {
     var total = sumType(list, type);
     var map = {};
 
     list.forEach(function (t) {
+      if (t.type !== type) return;
       map[t.categoryId] = (map[t.categoryId] || 0) + (Number(t.amount) || 0);
     });
 
@@ -291,6 +316,15 @@
         share: total ? map[id] / total : 0
       };
     }).sort(function (a, b) { return b.amount - a.amount; });
+  }
+
+  function byCategoryRange(from, to, type) {
+    var range = normalizeRange(from, to);
+    return groupByCategory(transactions({ from: range.from, to: range.to }), type);
+  }
+
+  function byCategory(monthKey, type) {
+    return groupByCategory(transactions({ monthKey: monthKey }), type);
   }
 
   function monthlySeries(count) {
@@ -370,7 +404,9 @@
     transactions: transactions,
     summary: summary,
     totals: totals,
+    summaryRange: summaryRange,
     byCategory: byCategory,
+    byCategoryRange: byCategoryRange,
     monthlySeries: monthlySeries,
     setCurrency: setCurrency,
     setDigits: setDigits,

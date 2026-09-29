@@ -518,8 +518,16 @@ button { cursor: pointer; border: 0; background: none; }
   color: var(--muted);
 }
 
+.seg button.on { background: var(--accent-soft); color: var(--accent); }
 .seg button.on[data-type="expense"] { background: var(--expense-soft); color: var(--expense); }
 .seg button.on[data-type="income"] { background: var(--income-soft); color: var(--income); }
+
+.range-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.range-grid .field { margin-bottom: 0; }
+.range-grid .s-d { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+
+input[type="date"] { min-height: 44px; direction: ltr; text-align: center; }
+input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0.75; }
 
 .amount-input {
   display: flex;
