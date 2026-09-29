@@ -40,6 +40,10 @@
     rangeEnd: null
   };
 
+  /* نسخه محتوای برنامه — باید با version.json یکی باشد.
+     اگر ناهماهنگ باشند یعنی فایل‌های کش‌شده قدیمی‌اند و نوار به‌روزرسانی نمایش داده می‌شود. */
+  var APP_VERSION = 4;
+
   var draft = null;
   var confirmHandler = null;
 
@@ -806,8 +810,38 @@
       '<div class="actions"><button class="btn ghost" data-action="close">بستن</button></div>');
   }
 
-  function openInstallTips() {
-    var standalone = window.navigator.standalone === true ||
+  /* ---------- به‌روزرسان خودکار ---------- */
+
+  function showUpdateBar() {
+    if (document.getElementById('update-bar')) return;
+    var bar = document.createElement('div');
+    bar.id = 'update-bar';
+    bar.className = 'update-bar';
+    var label = document.createElement('span');
+    label.textContent = 'نسخه جدید آماده است';
+    var btn = document.createElement('button');
+    btn.setAttribute('data-action', 'apply-update');
+    btn.textContent = 'به‌روزرسانی';
+    bar.appendChild(label);
+    bar.appendChild(btn);
+    document.body.appendChild(bar);
+  }
+
+  function checkForUpdate() {
+    try {
+      if (typeof window.fetch !== 'function') return;
+      window.fetch('version.json', { cache: 'no-store' }).then(function (res) {
+        if (!res || !res.ok) return null;
+        return res.json();
+      }).then(function (data) {
+        if (data && typeof data.version === 'number' && data.version !== APP_VERSION) {
+          showUpdateBar();
+        }
+      }).catch(function () {});
+    } catch (e) {}
+  }
+
+  function openInstallTips() {    var standalone = window.navigator.standalone === true ||
       window.matchMedia('(display-mode: standalone)').matches;
     openSheet('' +
       '<h2>نصب روی آیفون</h2>' +
@@ -1041,6 +1075,18 @@
         if (typeof fn === 'function') fn();
         break;
 
+      case 'apply-update':
+        toast('در حال به‌روزرسانی…');
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistration().then(function (reg) {
+            if (reg && typeof reg.update === 'function') { try { reg.update(); } catch (e) {} }
+            setTimeout(function () { window.location.reload(); }, 900);
+          }).catch(function () { window.location.reload(); });
+        } else {
+          window.location.reload();
+        }
+        break;
+
       case 'close': closeSheet(); break;
     }
   });
@@ -1072,6 +1118,7 @@
   Store.load();
   state.month = todayMonth();
   render();
+  checkForUpdate();
 
   Store.subscribe(function () {
     if (!sheet.classList.contains('open')) render();
@@ -1089,5 +1136,11 @@
         console.warn('ثبت service worker ناموفق بود', err);
       });
     });
+    /* در هر اجرا، فعالانه دنبال نسخه جدید سرویس‌ورکر بگرد */
+    try {
+      navigator.serviceWorker.getRegistration().then(function (reg) {
+        if (reg && typeof reg.update === 'function') reg.update();
+      }).catch(function () {});
+    } catch (e) {}
   }
 })();

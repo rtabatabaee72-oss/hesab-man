@@ -1,9 +1,10 @@
-const CACHE = 'hesab-man-v3';
+const CACHE = 'hesab-man-v4';
 
 const SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
+  './version.json',
   './css/styles.css',
   './js/jalali.js',
   './js/store.js',
@@ -35,6 +36,16 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+
+  /* نسخه برنامه همیشه از شبکه خوانده می‌شود تا به‌روزرسانی‌ها گیر کش نیفتند */
+  if (url.pathname.endsWith('/version.json')) {
+    event.respondWith(
+      fetch(new Request(request, { cache: 'no-store' })).catch(function () {
+        return caches.match(request);
+      })
+    );
+    return;
+  }
 
   if (request.mode === 'navigate') {
     event.respondWith(
