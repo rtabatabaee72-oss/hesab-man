@@ -356,19 +356,17 @@
     return head +
       '<div class="chips">' + presets + '</div>' +
       '<div class="card" style="margin-bottom:12px">' +
-        '<div class="range-grid">' +
-          '<div class="field">' +
-            '<label>از تاریخ</label>' +
-            '<input class="inp" id="range-start" type="date" value="' + esc(r.start) + '">' +
-            '<div class="s-d">' + esc(Jalali.shortDate(r.start)) + '</div>' +
-          '</div>' +
-          '<div class="field">' +
-            '<label>تا تاریخ</label>' +
-            '<input class="inp" id="range-end" type="date" value="' + esc(r.end) + '">' +
-            '<div class="s-d">' + esc(Jalali.shortDate(r.end)) + '</div>' +
-          '</div>' +
+        '<div class="field">' +
+          '<label>از تاریخ</label>' +
+          jalaliTriple('rs', r.start) +
+          '<div class="s-d">' + esc(Jalali.shortDate(r.start)) + '</div>' +
         '</div>' +
-        '<div class="s-d" style="margin-top:8px">' +
+        '<div class="field">' +
+          '<label>تا تاریخ</label>' +
+          jalaliTriple('re', r.end) +
+          '<div class="s-d">' + esc(Jalali.shortDate(r.end)) + '</div>' +
+        '</div>' +
+        '<div class="s-d">' +
           esc(Jalali.shortDate(r.start)) + ' تا ' + esc(Jalali.shortDate(r.end)) +
           ' · ' + FaNum.plain(days) + ' روز · ' + FaNum.plain(rs.count) + ' تراکنش' +
         '</div>' +
@@ -527,8 +525,46 @@
       '</div>';
   }
 
-  function catChips(type, selectedId) {
-    var list = Store.categories(type);
+  /* سه‌تایی سال/ماه/روز شمسی با پیشوند دلخواه برای id — برای بازه گزارش */
+  function jalaliTriple(prefix, iso) {
+    var j = Jalali.toJalali(iso);
+    var years = [];
+    var base = Jalali.toJalali(Jalali.todayISO()).jy;
+    for (var y = base + 1; y >= base - 6; y--) years.push(y);
+
+    var yearOpts = years.map(function (yy) {
+      return '<option value="' + yy + '"' + (yy === j.jy ? ' selected' : '') + '>' + FaNum.plain(yy) + '</option>';
+    }).join('');
+
+    var monthOpts = Jalali.months.map(function (name, i) {
+      var mm = i + 1;
+      return '<option value="' + mm + '"' + (mm === j.jm ? ' selected' : '') + '>' + esc(name) + '</option>';
+    }).join('');
+
+    var len = Jalali.monthLength(j.jy, j.jm);
+    var dayOpts = '';
+    for (var dd = 1; dd <= len; dd++) {
+      dayOpts += '<option value="' + dd + '"' + (dd === Math.min(j.jd, len) ? ' selected' : '') + '>' + FaNum.plain(dd) + '</option>';
+    }
+
+    return '' +
+      '<div class="picker">' +
+        '<select id="' + prefix + '-y">' + yearOpts + '</select>' +
+        '<select id="' + prefix + '-m">' + monthOpts + '</select>' +
+        '<select id="' + prefix + '-d">' + dayOpts + '</select>' +
+      '</div>';
+  }
+
+  function readJalaliTriple(prefix) {
+    var y = parseInt(((document.getElementById(prefix + '-y')) || {}).value, 10);
+    var m = parseInt(((document.getElementById(prefix + '-m')) || {}).value, 10);
+    var d = parseInt(((document.getElementById(prefix + '-d')) || {}).value, 10);
+    if (!y || !m || !d) return null;
+    d = Math.min(d, Jalali.monthLength(y, m));
+    return Jalali.jalaliToISO(y, m, d);
+  }
+
+  function catChips(type, selectedId) {    var list = Store.categories(type);
     if (!list.length) {
       return '<span class="s-d">برای این نوع، دسته‌ای نداری. از تنظیمات ↦ دسته‌بندی‌ها یکی بساز.</span>';
     }
@@ -1019,11 +1055,13 @@
 
   document.addEventListener('change', function (ev) {
     var t = ev.target;
-    if (!t || (t.id !== 'range-start' && t.id !== 'range-end')) return;
-    var s = document.getElementById('range-start');
-    var e = document.getElementById('range-end');
-    if (s && s.value) state.rangeStart = s.value;
-    if (e && e.value) state.rangeEnd = e.value;
+    if (!t || !t.id) return;
+    var rangeIds = ['rs-y', 'rs-m', 'rs-d', 're-y', 're-m', 're-d'];
+    if (rangeIds.indexOf(t.id) === -1) return;
+    var ns = readJalaliTriple('rs');
+    var ne = readJalaliTriple('re');
+    if (ns) state.rangeStart = ns;
+    if (ne) state.rangeEnd = ne;
     state.reportMode = 'range';
     currentRange();
     render();
